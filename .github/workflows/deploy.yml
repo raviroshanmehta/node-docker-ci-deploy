@@ -1,0 +1,82 @@
+name: Deploy
+
+# Runs after CI passes on main. Builds the image, pushes it to GitHub Container
+# Registry, then pulls and restarts it on your server over SSH.
+#
+# Repository secrets needed (Settings > Secrets and variables > Actions):
+#   SSH_HOST        server IP or hostname
+#   SSH_USER        deploy user that can run docker
+#   SSH_PRIVATE_KEY private key for that user
+#   GHCR_READ_TOKEN token with read:packages so the server can pull the image
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.event.workflow_run.head_sha }}
+
+      - name: Copy compose file to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: deploy/docker-compose.yml
+          target: /opt/app
+          strip_components: 1
+
+      - name: Pull and restart on server
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: SHA,GHCR_READ_TOKEN,GHCR_USER,IMAGE
+          script: |
+            set -e
+            cd /opt/app
+            echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            export IMAGE="$IMAGE:$SHA" APP_VERSION="$SHA"
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f
+            for i in $(seq 1 20); do
+              curl -fs http://127.0.0.1:3000/health && exit 0
+              sleep 2
+            done
+            echo "Health check failed" && docker compose logs --tail=50 && exit 1
