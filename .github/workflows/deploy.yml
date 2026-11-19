@@ -46,7 +46,20 @@ jobs:
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.event.workflow_run.head_sha }}
 
+      - name: Check deploy secrets
+        id: check
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          if [ -n "$SSH_HOST" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SSH_HOST is not set. Image pushed to GHCR; server deploy skipped."
+          fi
+
       - name: Copy compose file to server
+        if: steps.check.outputs.enabled == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -57,6 +70,7 @@ jobs:
           strip_components: 1
 
       - name: Pull and restart on server
+        if: steps.check.outputs.enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         env:
           SHA: ${{ github.event.workflow_run.head_sha }}
