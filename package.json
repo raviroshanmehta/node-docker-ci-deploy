@@ -1,0 +1,19 @@
+{
+  "name": "node-docker-ci-deploy",
+  "version": "1.0.0",
+  "description": "Fastify API with Docker, GitHub Actions CI/CD and zero-touch deploys to a VPS behind Nginx",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "fastify": "^5.1.0"
+  },
+  "license": "UNLICENSED"
+}
