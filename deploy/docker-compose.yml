@@ -1,0 +1,11 @@
+# Used on the server. The deploy workflow copies this file to /opt/app.
+services:
+  app:
+    image: ${IMAGE:?set IMAGE, e.g. ghcr.io/owner/repo:latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_VERSION: ${APP_VERSION:-latest}
+    ports:
+      - "127.0.0.1:3000:3000"   # only Nginx on the host can reach the app
